@@ -1,2 +1,2 @@
-# Dotconfig
+# Dotconfig [![Go Reference](https://pkg.go.dev/badge/github.com/DeanPDX/dotconfig.svg)](https://pkg.go.dev/github.com/DeanPDX/dotconfig)
 This package helps make app configuration from environment variables less tedious. In local development, we can supply a `.env` file. This is similar to [joho/godotenv](https://github.com/joho/godotenv) but the aim here is to not only read the `.env` file but produce a config struct based on struct tags.
