@@ -44,13 +44,11 @@ func readEnvFile() {
 type DecodeOption int
 
 const (
-	ReturnFileErrors     DecodeOption = iota // Return file access errors
-	ReturnDecodingErrors                     // Return encoding errors
+	ReturnFileErrors DecodeOption = iota // Return file access errors
 )
 
 type options struct {
-	ReturnFileErrors     bool
-	ReturnDecodingErrors bool
+	ReturnFileErrors bool
 }
 
 func optsFromVariadic(opts []DecodeOption) options {
@@ -59,8 +57,6 @@ func optsFromVariadic(opts []DecodeOption) options {
 		switch opt {
 		case ReturnFileErrors:
 			v.ReturnFileErrors = true
-		case ReturnDecodingErrors:
-			v.ReturnDecodingErrors = true
 		}
 	}
 	return v
