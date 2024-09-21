@@ -119,7 +119,6 @@ func ExampleFromReader() {
 	// to print them to the console.
 	fmt.Printf("App config loaded.\nMax Bytes: %v. Version: %v. Dev? %v. Stripe Secret: %v.\nWelcome Message:\n%v",
 		config.MaxBytesPerRequest, config.APIVersion, config.IsDev, config.StripeSecret, config.WelcomeMessage)
-
 	// Output:
 	// App config loaded.
 	// Max Bytes: 1024. Version: 1.19. Dev? true. Stripe Secret: sk_test_insertkeyhere.
