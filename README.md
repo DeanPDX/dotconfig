@@ -42,6 +42,9 @@ func Main() {
         }
         // Config is ready to use.
         // Float/bool/int values will be correctly parsed.
+        // When deploying to the cloud, make sure your env
+        // vars are being passed to your container via secret
+        // manager.
 }
 ```
 
