@@ -56,3 +56,6 @@ By default, file IO errors in `dotconfig.FromFileName` won't produce an error. T
 ```go
 config, err := dotconfig.FromFileName[AppConfig](".env", dotconfig.ReturnFileErrors)
 ```
+
+## Contributing
+Contributions are always welcome. This is still in the early stages and is mostly for internal use at the moment. Have a new idea or find a bug? Submit a pull request or create an issue!
