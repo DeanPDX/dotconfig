@@ -96,6 +96,7 @@ type AppConfig struct {
 	APIVersion         float64 `env:"API_VERSION"`
 	IsDev              bool    `env:"IS_DEV"`
 	StripeSecret       string  `env:"STRIPE_SECRET"`
+	WelcomeMessage     string  `env:"WELCOME_MESSAGE"`
 }
 
 const appConfigSample = `
@@ -104,18 +105,26 @@ API_VERSION='1.19'
 # All of these are valie for booleans:
 # 1, t, T, TRUE, true, True, 0, f, F, FALSE, false, False
 IS_DEV='1'
-STRIPE_SECRET='sk_test_insertkeyhere'`
+STRIPE_SECRET='sk_test_insertkeyhere'
+# Right now supporting newlines via "\n" in strings:
+WELCOME_MESSAGE='Hello,\nWelcome to the app!\n-The App Dev Team'`
 
 func ExampleFromReader() {
 	config, err := dotconfig.FromReader[AppConfig](strings.NewReader(appConfigSample))
 	if err != nil {
 		fmt.Printf("Didn't expect error. Got %v.", err)
 	}
-	// Don't do this in the real world, as your config will often
-	// have secrets from a secret manager and you don't want to
-	// print them to the console.
-	fmt.Printf("App config loaded. Ready to serve traffic with following configuration: %#v", config)
+	// Don't do this in the real world, as your config will
+	// have secrets from a secret manager and you don't want
+	// to print them to the console.
+	fmt.Printf("App config loaded.\nMax Bytes: %v. Version: %v. Dev? %v. Stripe Secret: %v.\nWelcome Message:\n%v",
+		config.MaxBytesPerRequest, config.APIVersion, config.IsDev, config.StripeSecret, config.WelcomeMessage)
 
 	// Output:
-	// App config loaded. Ready to serve traffic with following configuration: dotconfig_test.AppConfig{MaxBytesPerRequest:1024, APIVersion:1.19, IsDev:true, StripeSecret:"sk_test_insertkeyhere"}
+	// App config loaded.
+	// Max Bytes: 1024. Version: 1.19. Dev? true. Stripe Secret: sk_test_insertkeyhere.
+	// Welcome Message:
+	// Hello,
+	// Welcome to the app!
+	// -The App Dev Team
 }
