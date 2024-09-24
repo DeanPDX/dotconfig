@@ -32,10 +32,10 @@ STRIPE_SECRET='sk_test_asDF!'
 
 IS_DEV='true'
 WELCOME_EMAIL='Hello,\n\nWelcome to the app!\n\n-The Team'`)
-	config, err := dotconfig.FromReader[sampleConfig](reader)
-	if err != nil {
-		t.Fatalf("Didn't expect error. Got %v.", err)
-	}
+
+	ec := &dotconfig.ErrorCollection{}
+	config := dotconfig.FromReader[sampleConfig](reader, ec)
+
 	expected := sampleConfig{
 		StripeSecret: "sk_test_asDF!",
 		IsDevEnv:     true,
@@ -65,11 +65,11 @@ NOT_EXPORTED='yikes!'
 `
 
 func TestFromReaderDecoding(t *testing.T) {
+	ec := &dotconfig.ErrorCollection{}
+
 	reader := strings.NewReader(moreAdvancedEnv)
-	config, err := dotconfig.FromReader[moreAdvancedConfig](reader)
-	if err != nil {
-		t.Fatalf("Didn't expect error. Got %v.", err)
-	}
+	config := dotconfig.FromReader[moreAdvancedConfig](reader, ec)
+
 	expected := moreAdvancedConfig{
 		MaxBytesPerRequest: 1024,
 		APIVersion:         1.19,
@@ -84,11 +84,15 @@ func TestFromReaderDecoding(t *testing.T) {
 
 func TestFromFileNameErrs(t *testing.T) {
 	type myconfig struct{}
-	_, err := dotconfig.FromFileName[myconfig]("DOESN'T EXIST!!!", dotconfig.ReturnFileErrors)
+	_, errC := dotconfig.FromFileName[myconfig]("DOESN'T EXIST!!!")
 	// Make sure we get a doesn't exist error.
-	if !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("Expected error: %v. Got: %v.", os.ErrNotExist, err)
+
+	for _, err := range errC.Errors {
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("Expected error: %v. Got: %v.", os.ErrNotExist, err)
+		}
 	}
+
 }
 
 type AppConfig struct {
@@ -110,10 +114,9 @@ STRIPE_SECRET='sk_test_insertkeyhere'
 WELCOME_MESSAGE='Hello,\nWelcome to the app!\n-The App Dev Team'`
 
 func ExampleFromReader() {
-	config, err := dotconfig.FromReader[AppConfig](strings.NewReader(appConfigSample))
-	if err != nil {
-		fmt.Printf("Didn't expect error. Got %v.", err)
-	}
+	ec := &dotconfig.ErrorCollection{}
+	config := dotconfig.FromReader[AppConfig](strings.NewReader(appConfigSample), ec)
+
 	// Don't do this in the real world, as your config will
 	// have secrets from a secret manager and you don't want
 	// to print them to the console.

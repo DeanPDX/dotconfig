@@ -4,7 +4,6 @@ package dotconfig
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -14,52 +13,32 @@ import (
 	"strings"
 )
 
-func readEnvFile() {
-	envFile, err := os.ReadFile(".env")
-	// We don't really need to worry about handling errors here. If something
-	// happens and there's no file that probably means we are in a prod-like environment
-	// and everything will be set via actual environment variables.
+type ErrorCollection struct {
+	Errors []error
+}
+
+// Add appends a new error to the collection
+func (ec *ErrorCollection) Add(err error) {
 	if err != nil {
-		return
-	}
-	scanner := bufio.NewScanner(bytes.NewReader(envFile))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		// Empty line or comments, nothing to do. Otherwise, if it doesn't have "='" we don't have a valid line.
-		if len(line) == 0 || strings.HasPrefix(line, "#") || !strings.Contains(line, "='") {
-			continue
-		}
-		// Turn a line into key/value pair. Example line:
-		// APP_DSN='postgres://username:password123=@localhost:5432/database_name'
-		key := line[0:strings.Index(line, "='")]
-		value := line[len(key)+2:]
-		// Trim closing single quote
-		value = strings.TrimSuffix(value, "'")
-		// Turn \n into newlines
-		value = strings.ReplaceAll(value, `\n`, "\n")
-		os.Setenv(key, value)
+		ec.Errors = append(ec.Errors, err)
 	}
 }
 
-type DecodeOption int
-
-const (
-	ReturnFileErrors DecodeOption = iota // Return file access errors
-)
-
-type options struct {
-	ReturnFileErrors bool
+// HasErrors returns true if the collection contains any errors
+func (ec *ErrorCollection) HasErrors() bool {
+	return len(ec.Errors) > 0
 }
 
-func optsFromVariadic(opts []DecodeOption) options {
-	v := options{}
-	for _, opt := range opts {
-		switch opt {
-		case ReturnFileErrors:
-			v.ReturnFileErrors = true
-		}
+// Error implements the error interface
+func (ec *ErrorCollection) Error() string {
+	if !ec.HasErrors() {
+		return ""
 	}
-	return v
+	errorStrings := make([]string, len(ec.Errors))
+	for i, err := range ec.Errors {
+		errorStrings[i] = err.Error()
+	}
+	return fmt.Sprintf("Multiple errors occurred:\n- %s", strings.Join(errorStrings, "\n- "))
 }
 
 // FromFileName will call [os.Open] on the supplied name and will
@@ -74,19 +53,19 @@ func optsFromVariadic(opts []DecodeOption) options {
 // See [FromReader] for supported types and expected file format. And
 // if you want to control your own file access or read from something
 // other than a file, you can call [FromReader] directly with an [io.Reader].
-func FromFileName[T any](name string, opts ...DecodeOption) (T, error) {
+func FromFileName[T any](name string) (T, ErrorCollection) {
+
+	ec := &ErrorCollection{}
+
 	file, err := os.Open(name)
-	ops := optsFromVariadic(opts)
 	if err != nil {
 		var config T
-		if ops.ReturnFileErrors {
-			return config, err
-		} else {
-			return config, nil
-		}
+		ec.Add(err)
+		return config, *ec
 	}
+
 	defer file.Close()
-	return FromReader[T](file)
+	return FromReader[T](file, ec), *ec
 }
 
 // FromReader will read from r and call os.Setenv to set
@@ -103,35 +82,38 @@ func FromFileName[T any](name string, opts ...DecodeOption) (T, error) {
 // Currently newlines are supported as "\n" in string values.
 // In the future might look in to more advanced escaping, etc.
 // but this suits our needs for the time being.
-func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
+func FromReader[T any](r io.Reader, ec *ErrorCollection) T {
 	// First, parse all values in our reader and os.Setenv them.
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		// Empty line or comments, nothing to do. Otherwise, if it doesn't have "='" we don't have a valid line.
-		if len(line) == 0 || strings.HasPrefix(line, "#") || !strings.Contains(line, "='") {
+		if len(line) == 0 || strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
 			continue
 		}
 		// Turn a line into key/value pair. Example line:
 		// STRIPE_SECRET_KEY='sk_test_asDF!'
-		key := line[0:strings.Index(line, "='")]
-		value := line[len(key)+2:]
+
+		key := line[0:strings.Index(line, "=")]
+		value := line[len(key)+1:]
 		// Trim closing single quote
 		value = strings.TrimSuffix(value, "'")
+		value = strings.TrimPrefix(value, "'")
 		// Turn \n into newlines
 		value = strings.ReplaceAll(value, `\n`, "\n")
 		os.Setenv(key, value)
 	}
 	// Next, populate config file based on struct tags and return populated config
-	return fromEnv[T]()
+	return fromEnv[T](ec)
 }
 
-func fromEnv[T any](opts ...DecodeOption) (T, error) {
+func fromEnv[T any](ec *ErrorCollection) T {
 	var config T
 	// Reflect into our config
 	ct := reflect.TypeOf(config)
 	if ct.Kind() != reflect.Struct {
-		return config, errors.New("only structs are supported")
+		ec.Add(errors.New("config is no struct"))
+		return config
 	}
 	cv := reflect.ValueOf(&config).Elem()
 	// Enumerate fields and grab values via os.Getenv, converting as needed.
@@ -143,15 +125,24 @@ func fromEnv[T any](opts ...DecodeOption) (T, error) {
 		}
 		fieldType := ct.Field(i)
 		envKey := fieldType.Tag.Get("env")
+
 		// No struct tag
 		if envKey == "" {
+			ec.Add(errors.New(fmt.Sprint("fieldVal: ", fieldType, " is empty")))
 			continue
 		}
-		envValue := os.Getenv(envKey)
-		// No value
+
+		envValue, valueIsThere := os.LookupEnv(envKey)
+		if !valueIsThere {
+			ec.Add(errors.New(fmt.Sprint("envKey: ", envKey, " is not present")))
+		}
+
+		// No value is OK now.
 		if strings.TrimSpace(envValue) == "" {
+			fieldVal.SetString("")
 			continue
 		}
+
 		// Based on type, parse and set values. This borrows from encoding/json:
 		// https://cs.opensource.google/go/go/+/refs/tags/go1.23.1:src/encoding/json/decode.go;l=990
 		switch fieldType.Type.Kind() {
@@ -170,8 +161,9 @@ func fromEnv[T any](opts ...DecodeOption) (T, error) {
 		case reflect.String:
 			fieldVal.SetString(envValue)
 		default:
-			return config, fmt.Errorf("unsupported field type: %v", fieldType.Type.Name())
+			ec.Add(errors.New(fmt.Sprint("unsupported field type: ", fieldType.Type.Name())))
+			return config
 		}
 	}
-	return config, nil
+	return config
 }
