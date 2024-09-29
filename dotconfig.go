@@ -4,7 +4,6 @@ package dotconfig
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -14,49 +13,26 @@ import (
 	"strings"
 )
 
-func readEnvFile() {
-	envFile, err := os.ReadFile(".env")
-	// We don't really need to worry about handling errors here. If something
-	// happens and there's no file that probably means we are in a prod-like environment
-	// and everything will be set via actual environment variables.
-	if err != nil {
-		return
-	}
-	scanner := bufio.NewScanner(bytes.NewReader(envFile))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		// Empty line or comments, nothing to do. Otherwise, if it doesn't have "='" we don't have a valid line.
-		if len(line) == 0 || strings.HasPrefix(line, "#") || !strings.Contains(line, "='") {
-			continue
-		}
-		// Turn a line into key/value pair. Example line:
-		// APP_DSN='postgres://username:password123=@localhost:5432/database_name'
-		key := line[0:strings.Index(line, "='")]
-		value := line[len(key)+2:]
-		// Trim closing single quote
-		value = strings.TrimSuffix(value, "'")
-		// Turn \n into newlines
-		value = strings.ReplaceAll(value, `\n`, "\n")
-		os.Setenv(key, value)
-	}
-}
-
 type DecodeOption int
 
 const (
-	ReturnFileErrors DecodeOption = iota // Return file access errors
+	ReturnFileIOErrors DecodeOption = iota // Return file IO errors
+	EnforceStructTags                      // Make sure all fields in config struct have `env` struct tags
 )
 
 type options struct {
-	ReturnFileErrors bool
+	ReturnFileIOErrors bool
+	EnforceStructTags  bool
 }
 
 func optsFromVariadic(opts []DecodeOption) options {
 	v := options{}
 	for _, opt := range opts {
 		switch opt {
-		case ReturnFileErrors:
-			v.ReturnFileErrors = true
+		case ReturnFileIOErrors:
+			v.ReturnFileIOErrors = true
+		case EnforceStructTags:
+			v.EnforceStructTags = true
 		}
 	}
 	return v
@@ -69,20 +45,25 @@ func optsFromVariadic(opts []DecodeOption) options {
 // will fail. If you *want* to return file errors, use opts:
 //
 //	type myconfig struct{/*...*/}
-//	conf, err := dotconfig.FromFileName[myconfig](".env", dotconfig.ReturnFileErrors)
+//	conf, err := dotconfig.FromFileName[myconfig](".env", dotconfig.ReturnFileIOErrors)
 //
 // See [FromReader] for supported types and expected file format. And
 // if you want to control your own file access or read from something
 // other than a file, you can call [FromReader] directly with an [io.Reader].
 func FromFileName[T any](name string, opts ...DecodeOption) (T, error) {
 	file, err := os.Open(name)
-	ops := optsFromVariadic(opts)
 	if err != nil {
-		var config T
-		if ops.ReturnFileErrors {
+		ops := optsFromVariadic(opts)
+		// Our consumer wants to just stop on file errors. This is unusual
+		// but it's the case where they always want to ensure an .env file
+		// exists and is successfully read.
+		if ops.ReturnFileIOErrors {
+			var config T
 			return config, err
 		} else {
-			return config, nil
+			// No env file but we will still extract our config from the env
+			// variables.
+			return fromEnv[T](ops)
 		}
 	}
 	defer file.Close()
@@ -97,7 +78,9 @@ func FromFileName[T any](name string, opts ...DecodeOption) (T, error) {
 //	KEY='value enclosed in single quotes'
 //	# Comments are fine as are blank lines
 //
-//	STRIPE_SECRET_KEY='sk_test_asDF!'
+//	# You also don't need single/double quotes at all if you prefer
+//	DATA_SOURCE_NAME=postgres://username:password@localhost:5432/database_name
+//	DOUBLE_QUOTES="sk_test_asDF!"
 //	MULTI_LINE='line1\nline2\nline3'
 //
 // Currently newlines are supported as "\n" in string values.
@@ -109,29 +92,51 @@ func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		// Empty line or comments, nothing to do. Otherwise, if it doesn't have "='" we don't have a valid line.
-		if len(line) == 0 || strings.HasPrefix(line, "#") || !strings.Contains(line, "='") {
+		if len(line) == 0 || strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
 			continue
 		}
-		// Turn a line into key/value pair. Example line:
+		// Turn a line into key/value pair. Example lines:
 		// STRIPE_SECRET_KEY='sk_test_asDF!'
-		key := line[0:strings.Index(line, "='")]
-		value := line[len(key)+2:]
-		// Trim closing single quote
-		value = strings.TrimSuffix(value, "'")
+		// STRIPE_SECRET_KEY=sk_test_asDF!
+		// STRIPE_SECRET_KEY="sk_test_asDF!"
+		key := line[0:strings.Index(line, "=")]
+		value := line[len(key)+1:]
+		// Determine if our string is single quoted, double quoted, or just raw value.
+		if strings.HasPrefix(value, "'") {
+			// Trim closing single quote
+			value = strings.TrimSuffix(value, "'")
+			// And trim starting single quote
+			value = strings.TrimPrefix(value, "'")
+		} else if strings.HasPrefix(value, `"`) {
+			// Trim closing double quote
+			value = strings.TrimSuffix(value, `"`)
+			// And trim starting double quote
+			value = strings.TrimPrefix(value, `"`)
+		}
 		// Turn \n into newlines
 		value = strings.ReplaceAll(value, `\n`, "\n")
+		// Finally, set our env variable.
 		os.Setenv(key, value)
 	}
 	// Next, populate config file based on struct tags and return populated config
-	return fromEnv[T]()
+	return fromEnv[T](optsFromVariadic(opts))
 }
 
-func fromEnv[T any](opts ...DecodeOption) (T, error) {
+var (
+	ErrConfigMustBeStruct   = errors.New("config must be struct")
+	ErrMissingStructTag     = errors.New("missing struct tag on field")
+	ErrMissingEnvVar        = errors.New("value not present in env")
+	ErrUnsupportedFieldType = errors.New("unsupported field type")
+)
+
+func fromEnv[T any](opts options) (T, error) {
 	var config T
+	errs := joinError{}
 	// Reflect into our config
 	ct := reflect.TypeOf(config)
+	// If config is not a struct, that's a hard stop.
 	if ct.Kind() != reflect.Struct {
-		return config, errors.New("only structs are supported")
+		return config, ErrConfigMustBeStruct
 	}
 	cv := reflect.ValueOf(&config).Elem()
 	// Enumerate fields and grab values via os.Getenv, converting as needed.
@@ -145,10 +150,23 @@ func fromEnv[T any](opts ...DecodeOption) (T, error) {
 		envKey := fieldType.Tag.Get("env")
 		// No struct tag
 		if envKey == "" {
+			// By default we just assume the consumers of this library have
+			// a mixture of fields with env struct tags and some they want
+			// this library to ignore. But consumers can opt in to no struct
+			// tag = error with config setting.
+			if opts.EnforceStructTags {
+				errs.Add(fmt.Errorf("%w: %v", ErrMissingStructTag, fieldType.Name))
+			}
 			continue
 		}
-		envValue := os.Getenv(envKey)
-		// No value
+		envValue, keyExists := os.LookupEnv(envKey)
+		// Missing env key
+		if !keyExists {
+			errs.Add(fmt.Errorf("%w: %v", ErrMissingEnvVar, envKey))
+			continue
+		}
+		// Empty value
+		// TODO: we could enforce non-empty values based on struct tags.
 		if strings.TrimSpace(envValue) == "" {
 			continue
 		}
@@ -170,8 +188,12 @@ func fromEnv[T any](opts ...DecodeOption) (T, error) {
 		case reflect.String:
 			fieldVal.SetString(envValue)
 		default:
-			return config, fmt.Errorf("unsupported field type: %v", fieldType.Type.Name())
+			errs.Add(fmt.Errorf("%w: %v", ErrUnsupportedFieldType, fieldType.Type.Name()))
 		}
 	}
+	if errs.HasErrors() {
+		return config, errs
+	}
 	return config, nil
+
 }
