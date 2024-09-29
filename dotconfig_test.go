@@ -220,7 +220,7 @@ func ExampleFromReader() {
 }
 
 type ConfigWithErrors struct {
-	StripeSecret   string     `env:"STRIPE_SECRET"`
+	StripeSecret   string     `env:"SHOULD_BE_MISSING"`
 	Complex        complex128 `env:"COMPLEX"`
 	WelcomeMessage string
 }
@@ -247,7 +247,7 @@ func ExampleErrors() {
 		}
 	}
 	// Output:
-	// Missing env variable: value not present in env: STRIPE_SECRET
+	// Missing env variable: value not present in env: SHOULD_BE_MISSING
 	// Unsupported type: unsupported field type: complex128
 	// Missing struct tag: missing struct tag on field: WelcomeMessage
 }
