@@ -13,32 +13,29 @@ import (
 	"strings"
 )
 
-type ErrorCollection struct {
-	Errors []error
+type DecodeOption int
+
+const (
+	ReturnFileIOErrors DecodeOption = iota // Return file IO errors
+	EnforceStructTags                      // Make sure all fields in config struct have `env` struct tags
+)
+
+type options struct {
+	ReturnFileIOErrors bool
+	EnforceStructTags  bool
 }
 
-// Add appends a new error to the collection
-func (ec *ErrorCollection) Add(err error) {
-	if err != nil {
-		ec.Errors = append(ec.Errors, err)
+func optsFromVariadic(opts []DecodeOption) options {
+	v := options{}
+	for _, opt := range opts {
+		switch opt {
+		case ReturnFileIOErrors:
+			v.ReturnFileIOErrors = true
+		case EnforceStructTags:
+			v.EnforceStructTags = true
+		}
 	}
-}
-
-// HasErrors returns true if the collection contains any errors
-func (ec *ErrorCollection) HasErrors() bool {
-	return len(ec.Errors) > 0
-}
-
-// Error implements the error interface
-func (ec *ErrorCollection) Error() string {
-	if !ec.HasErrors() {
-		return ""
-	}
-	errorStrings := make([]string, len(ec.Errors))
-	for i, err := range ec.Errors {
-		errorStrings[i] = err.Error()
-	}
-	return fmt.Sprintf("Multiple errors occurred:\n- %s", strings.Join(errorStrings, "\n- "))
+	return v
 }
 
 // FromFileName will call [os.Open] on the supplied name and will
@@ -48,24 +45,29 @@ func (ec *ErrorCollection) Error() string {
 // will fail. If you *want* to return file errors, use opts:
 //
 //	type myconfig struct{/*...*/}
-//	conf, err := dotconfig.FromFileName[myconfig](".env", dotconfig.ReturnFileErrors)
+//	conf, err := dotconfig.FromFileName[myconfig](".env", dotconfig.ReturnFileIOErrors)
 //
 // See [FromReader] for supported types and expected file format. And
 // if you want to control your own file access or read from something
 // other than a file, you can call [FromReader] directly with an [io.Reader].
-func FromFileName[T any](name string) (T, ErrorCollection) {
-
-	ec := &ErrorCollection{}
-
+func FromFileName[T any](name string, opts ...DecodeOption) (T, error) {
 	file, err := os.Open(name)
 	if err != nil {
-		var config T
-		ec.Add(err)
-		return config, *ec
+		ops := optsFromVariadic(opts)
+		// Our consumer wants to just stop on file errors. This is unusual
+		// but it's the case where they always want to ensure an .env file
+		// exists and is successfully read.
+		if ops.ReturnFileIOErrors {
+			var config T
+			return config, err
+		} else {
+			// No env file but we will still extract our config from the env
+			// variables.
+			return fromEnv[T](ops)
+		}
 	}
-
 	defer file.Close()
-	return FromReader[T](file, ec), *ec
+	return FromReader[T](file)
 }
 
 // FromReader will read from r and call os.Setenv to set
@@ -76,13 +78,15 @@ func FromFileName[T any](name string) (T, ErrorCollection) {
 //	KEY='value enclosed in single quotes'
 //	# Comments are fine as are blank lines
 //
-//	STRIPE_SECRET_KEY='sk_test_asDF!'
+//	# You also don't need single/double quotes at all if you prefer
+//	DATA_SOURCE_NAME=postgres://username:password@localhost:5432/database_name
+//	DOUBLE_QUOTES="sk_test_asDF!"
 //	MULTI_LINE='line1\nline2\nline3'
 //
 // Currently newlines are supported as "\n" in string values.
 // In the future might look in to more advanced escaping, etc.
 // but this suits our needs for the time being.
-func FromReader[T any](r io.Reader, ec *ErrorCollection) T {
+func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
 	// First, parse all values in our reader and os.Setenv them.
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
@@ -91,29 +95,48 @@ func FromReader[T any](r io.Reader, ec *ErrorCollection) T {
 		if len(line) == 0 || strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
 			continue
 		}
-		// Turn a line into key/value pair. Example line:
+		// Turn a line into key/value pair. Example lines:
 		// STRIPE_SECRET_KEY='sk_test_asDF!'
-
+		// STRIPE_SECRET_KEY=sk_test_asDF!
+		// STRIPE_SECRET_KEY="sk_test_asDF!"
 		key := line[0:strings.Index(line, "=")]
 		value := line[len(key)+1:]
-		// Trim closing single quote
-		value = strings.TrimSuffix(value, "'")
-		value = strings.TrimPrefix(value, "'")
+		// Determine if our string is single quoted, double quoted, or just raw value.
+		if strings.HasPrefix(value, "'") {
+			// Trim closing single quote
+			value = strings.TrimSuffix(value, "'")
+			// And trim starting single quote
+			value = strings.TrimPrefix(value, "'")
+		} else if strings.HasPrefix(value, `"`) {
+			// Trim closing double quote
+			value = strings.TrimSuffix(value, `"`)
+			// And trim starting double quote
+			value = strings.TrimPrefix(value, `"`)
+		}
 		// Turn \n into newlines
 		value = strings.ReplaceAll(value, `\n`, "\n")
+		// Finally, set our env variable.
 		os.Setenv(key, value)
 	}
 	// Next, populate config file based on struct tags and return populated config
-	return fromEnv[T](ec)
+	return fromEnv[T](optsFromVariadic(opts))
 }
 
-func fromEnv[T any](ec *ErrorCollection) T {
+var (
+	ErrConfigMustBeStruct   = errors.New("config must be struct")
+	ErrMissingStructTag     = errors.New("missing struct tag on field")
+	ErrMissingEnvVar        = errors.New("value not present in env")
+	ErrUnsupportedFieldType = errors.New("unsupported field type")
+)
+
+func fromEnv[T any](opts options) (T, error) {
 	var config T
+	errs := joinError{}
 	// Reflect into our config
 	ct := reflect.TypeOf(config)
+	// If config is not a struct, that's a hard stop.
 	if ct.Kind() != reflect.Struct {
-		ec.Add(errors.New("config is no struct"))
-		return config
+		return config, ErrConfigMustBeStruct
 	}
 	cv := reflect.ValueOf(&config).Elem()
 	// Enumerate fields and grab values via os.Getenv, converting as needed.
@@ -125,24 +148,28 @@ func fromEnv[T any](ec *ErrorCollection) T {
 		}
 		fieldType := ct.Field(i)
 		envKey := fieldType.Tag.Get("env")
-
 		// No struct tag
 		if envKey == "" {
-			ec.Add(errors.New(fmt.Sprint("fieldVal: ", fieldType, " is empty")))
+			// By default we just assume the consumers of this library have
+			// a mixture of fields with env struct tags and some they want
+			// this library to ignore. But consumers can opt in to no struct
+			// tag = error with config setting.
+			if opts.EnforceStructTags {
+				errs.Add(fmt.Errorf("%w: %v", ErrMissingStructTag, fieldType.Name))
+			}
 			continue
 		}
-
-		envValue, valueIsThere := os.LookupEnv(envKey)
-		if !valueIsThere {
-			ec.Add(errors.New(fmt.Sprint("envKey: ", envKey, " is not present")))
+		envValue, keyExists := os.LookupEnv(envKey)
+		// Missing env key
+		if !keyExists {
+			errs.Add(fmt.Errorf("%w: %v", ErrMissingEnvVar, envKey))
+			continue
 		}
-
-		// No value is OK now.
+		// Empty value
+		// TODO: we could enforce non-empty values based on struct tags.
 		if strings.TrimSpace(envValue) == "" {
-			fieldVal.SetString("")
 			continue
 		}
-
 		// Based on type, parse and set values. This borrows from encoding/json:
 		// https://cs.opensource.google/go/go/+/refs/tags/go1.23.1:src/encoding/json/decode.go;l=990
 		switch fieldType.Type.Kind() {
@@ -161,9 +188,12 @@ func fromEnv[T any](ec *ErrorCollection) T {
 		case reflect.String:
 			fieldVal.SetString(envValue)
 		default:
-			ec.Add(errors.New(fmt.Sprint("unsupported field type: ", fieldType.Type.Name())))
-			return config
+			errs.Add(fmt.Errorf("%w: %v", ErrUnsupportedFieldType, fieldType.Type.Name()))
 		}
 	}
-	return config
+	if errs.HasErrors() {
+		return config, errs
+	}
+	return config, nil
+
 }
