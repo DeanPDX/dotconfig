@@ -40,11 +40,11 @@ type AppConfig struct {
 func Main() {
         config, err := dotconfig.FromFileName[AppConfig](".env")
         if err != nil {
-                fmt.Printf("Error: %v.", err)
+			fmt.Printf("Error: %v.", err)
         }
         // Config is ready to use. Don't print to console in a real 
-		// app. But for the purposes of testing:
-		fmt.Println(config)
+        // app. But for the purposes of testing:
+        fmt.Println(config)
 }
 ```
 
