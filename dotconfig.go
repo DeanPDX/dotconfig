@@ -95,12 +95,19 @@ func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
 		if len(line) == 0 || strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
 			continue
 		}
+
 		// Turn a line into key/value pair. Example lines:
 		// STRIPE_SECRET_KEY='sk_test_asDF!'
 		// STRIPE_SECRET_KEY=sk_test_asDF!
 		// STRIPE_SECRET_KEY="sk_test_asDF!"
 		key := line[0:strings.Index(line, "=")]
 		value := line[len(key)+1:]
+
+		// If there is a inline commend, so a space and then a #, exclude the commend.
+		if strings.Contains(value, " #") {
+			value = value[0:strings.Index(value, " #")]
+		}
+
 		// Determine if our string is single quoted, double quoted, or just raw value.
 		if strings.HasPrefix(value, "'") {
 			// Trim closing single quote
