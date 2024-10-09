@@ -77,7 +77,7 @@ config, err := dotconfig.FromFileName[AppConfig](".env", dotconfig.EnforceStruct
 if err != nil {
 	fmt.Printf("Error %v.", err)
 }
-// Ourput:
+// Output:
 // Error: multiple errors:
 //  - missing struct tag on field: ForgotToAddStructTag
 //  - unsupported field type: complex64
