@@ -23,28 +23,28 @@ You can read from this file and initialize your config with values with the foll
 package main
 
 import (
-        "fmt"
+	"fmt"
 
-        "github.com/DeanPDX/dotconfig"
+	"github.com/DeanPDX/dotconfig"
 )
 
 // Our AppConfig with env struct tags:
 type AppConfig struct {
-        MaxBytesPerRequest int     `env:"MAX_BYTES_PER_REQUEST"`
-        APIVersion         float64 `env:"API_VERSION"`
-        IsDev              bool    `env:"IS_DEV"`
-        StripeSecret       string  `env:"STRIPE_SECRET"`
-        WelcomeMessage     string  `env:"WELCOME_MESSAGE"`
+	MaxBytesPerRequest int     `env:"MAX_BYTES_PER_REQUEST"`
+	APIVersion         float64 `env:"API_VERSION"`
+	IsDev              bool    `env:"IS_DEV"`
+	StripeSecret       string  `env:"STRIPE_SECRET"`
+	WelcomeMessage     string  `env:"WELCOME_MESSAGE"`
 }
 
 func Main() {
-        config, err := dotconfig.FromFileName[AppConfig](".env")
-        if err != nil {
-			fmt.Printf("Error: %v.", err)
-        }
-        // Config is ready to use. Don't print to console in a real 
-        // app. But for the purposes of testing:
-        fmt.Println(config)
+	config, err := dotconfig.FromFileName[AppConfig](".env")
+	if err != nil {
+		fmt.Printf("Error: %v.", err)
+	}
+	// Config is ready to use. Don't print to console in a real 
+	// app. But for the purposes of testing:
+	fmt.Println(config)
 }
 ```
 
