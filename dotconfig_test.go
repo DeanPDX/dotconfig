@@ -191,3 +191,26 @@ func TestSingleError(t *testing.T) {
 		t.Errorf("Expecting exactly 1 error")
 	}
 }
+
+func TestMustBeStruct(t *testing.T) {
+	_, err := dotconfig.FromFileName[string](".env")
+	// Just make sure we get exactly 1 error.
+	errs := dotconfig.Errors(err)
+	if len(errs) != 1 {
+		t.Fatalf("Expecting exactly 1 error")
+	}
+	if !errors.Is(errs[0], dotconfig.ErrConfigMustBeStruct) {
+		t.Errorf("Expecting invalid type error. Got: %v", errs[0])
+	}
+}
+
+type empty struct{}
+
+func TestFileIO(t *testing.T) {
+	// Just to get us to 100% I am doing this to
+	// hit the deferred file.Close()
+	_, err := dotconfig.FromFileName[empty]("go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
