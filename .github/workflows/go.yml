@@ -24,11 +24,14 @@ jobs:
     - name: Build
       run: go build -v ./...
 
-    - name: Test
-      run: go test -json > TestResults.json
-    - name: Upload Go test results
-      uses: actions/upload-artifact@v4
+    - name: Run tests
+      run: go test -v
+    
+    - name: Generate code coverage report
+      run: go test -coverprofile=coverage.txt
+
+    - name: Upload results to Codecov
+      uses: codecov/codecov-action@v5
       with:
-        name: Go-results
-        path: TestResults.json
+        token: ${{ secrets.CODECOV_TOKEN }}
 

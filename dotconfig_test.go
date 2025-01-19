@@ -2,7 +2,6 @@ package dotconfig_test
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -112,7 +111,7 @@ func TestFromFileNameNoFile(t *testing.T) {
 	os.Setenv("FIELD_WITH_DEFAULT", "Overridden value")
 	config, err := dotconfig.FromFileName[moreAdvancedConfig]("doesn't exist!")
 	if err != nil {
-		fmt.Printf("Didn't expect error. Got %v.", err)
+		t.Fatalf("Didn't expect error. Got %v.", err)
 	}
 
 	expected := moreAdvancedConfig{
@@ -164,15 +163,15 @@ func TestMultiError(t *testing.T) {
 			case errors.Is(errors.Unwrap(err), dotconfig.ErrMissingEnvVar):
 				// Handle missing environment variable
 				knownErrors++
-				fmt.Printf("Error: %v\n", err)
+				t.Logf("Error: %v\n", err)
 			case errors.Is(errors.Unwrap(err), dotconfig.ErrMissingStructTag):
 				// Handle missing struct tag
 				knownErrors++
-				fmt.Printf("Error: %v\n", err)
+				t.Logf("Error: %v\n", err)
 			case errors.Is(errors.Unwrap(err), dotconfig.ErrUnsupportedFieldType):
 				// Handle unsupported field
 				knownErrors++
-				fmt.Printf("Error: %v\n", err)
+				t.Logf("Error: %v\n", err)
 			}
 		}
 		if knownErrors != 3 {
