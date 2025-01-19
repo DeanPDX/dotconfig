@@ -17,6 +17,7 @@ type sampleConfig struct {
 	WelcomeEmail string `env:"WELCOME_EMAIL"`
 }
 
+// Expected output from test below
 const welcomeEmail = `Hello,
 
 Welcome to the app!
@@ -150,15 +151,15 @@ func TestMultiError(t *testing.T) {
 		for _, err := range errs {
 			// Handle various error types however you want
 			switch {
-			case errors.Is(dotconfig.ErrMissingEnvVar, errors.Unwrap(err)):
+			case errors.Is(errors.Unwrap(err), dotconfig.ErrMissingEnvVar):
 				// Handle missing environment variable
 				knownErrors++
 				fmt.Printf("Error: %v\n", err)
-			case errors.Is(dotconfig.ErrMissingStructTag, errors.Unwrap(err)):
+			case errors.Is(errors.Unwrap(err), dotconfig.ErrMissingStructTag):
 				// Handle missing struct tag
 				knownErrors++
 				fmt.Printf("Error: %v\n", err)
-			case errors.Is(dotconfig.ErrUnsupportedFieldType, errors.Unwrap(err)):
+			case errors.Is(errors.Unwrap(err), dotconfig.ErrUnsupportedFieldType):
 				// Handle unsupported field
 				knownErrors++
 				fmt.Printf("Error: %v\n", err)
@@ -234,13 +235,13 @@ func ExampleErrors() {
 		for _, err := range errs {
 			// Handle various error types however you want
 			switch {
-			case errors.Is(dotconfig.ErrMissingEnvVar, errors.Unwrap(err)):
+			case errors.Is(errors.Unwrap(err), dotconfig.ErrMissingEnvVar):
 				// Handle missing environment variable
 				fmt.Printf("Missing env variable: %v\n", err)
-			case errors.Is(dotconfig.ErrMissingStructTag, errors.Unwrap(err)):
+			case errors.Is(errors.Unwrap(err), dotconfig.ErrMissingStructTag):
 				// Handle missing struct tag
 				fmt.Printf("Missing struct tag: %v\n", err)
-			case errors.Is(dotconfig.ErrUnsupportedFieldType, errors.Unwrap(err)):
+			case errors.Is(errors.Unwrap(err), dotconfig.ErrUnsupportedFieldType):
 				// Handle unsupported field
 				fmt.Printf("Unsupported type: %v\n", err)
 			}

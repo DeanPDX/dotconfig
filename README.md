@@ -94,11 +94,11 @@ if err != nil {
 	for _, err := range errs {
 		// Handle various error types however you want
 		switch {
-		case errors.Is(dotconfig.ErrMissingEnvVar, errors.Unwrap(err)):
+		case errors.Is(errors.Unwrap(err), dotconfig.ErrMissingEnvVar):
 			// Handle missing environment variable
-		case errors.Is(dotconfig.ErrMissingStructTag, errors.Unwrap(err)):
+		case errors.Is(errors.Unwrap(err), dotconfig.ErrMissingStructTag):
 			// Handle missing struct tag
-		case errors.Is(dotconfig.ErrUnsupportedFieldType, errors.Unwrap(err)):
+		case errors.Is(errors.Unwrap(err), dotconfig.ErrUnsupportedFieldType):
 			// Handle unsupported field type
 		}
 	}
