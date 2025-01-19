@@ -1,4 +1,4 @@
-# Dotconfig [![Go Reference](https://pkg.go.dev/badge/github.com/DeanPDX/dotconfig.svg)](https://pkg.go.dev/github.com/DeanPDX/dotconfig)
+# Dotconfig [![Go Reference](https://pkg.go.dev/badge/github.com/DeanPDX/dotconfig.svg)](https://pkg.go.dev/github.com/DeanPDX/dotconfig) [![Go Report Card](https://goreportcard.com/badge/github.com/DeanPDX/dotconfig)](https://goreportcard.com/report/github.com/DeanPDX/dotconfig)
 This package aims to simplify configuration from environment variables. In local development, we can supply a `.env` file with key/value pairs. When deployed, values come from a secret manager. This is similar to [joho/godotenv](https://github.com/joho/godotenv) but the aim here is to not only read the `.env` file but use reflection to produce a config struct. We also support optional/required fields in the struct and default values.
 
 ## Usage
@@ -108,4 +108,6 @@ if err != nil {
 ```
 
 ## Contributing
-Contributions are always welcome. This is still in the early stages and is mostly for internal use at the moment. Have a new idea or find a bug? Submit a pull request or create an issue!
+Contributions are always welcome. Have a new idea or find a bug? Submit a pull request or create an issue!
+
+**IMPORTANT**: This package is being used in production and any future updates should maintain backwards compatibility.
