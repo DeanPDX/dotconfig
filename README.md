@@ -1,5 +1,5 @@
 # Dotconfig [![Go Reference](https://pkg.go.dev/badge/github.com/DeanPDX/dotconfig.svg)](https://pkg.go.dev/github.com/DeanPDX/dotconfig)
-This package aims to simplify configuration from environment variables. In local development, we can supply a `.env` file with key/value pairs. When deployed, values come from a secret manager. This is similar to [joho/godotenv](https://github.com/joho/godotenv) but the aim here is to not only read the `.env` file but use reflection to produce a config struct.
+This package aims to simplify configuration from environment variables. In local development, we can supply a `.env` file with key/value pairs. When deployed, values come from a secret manager. This is similar to [joho/godotenv](https://github.com/joho/godotenv) but the aim here is to not only read the `.env` file but use reflection to produce a config struct. We also support optional/required fields in the struct and default values.
 
 ## Usage
 Create a `.env` file in your current working directory with the following contents:
@@ -30,9 +30,9 @@ import (
 
 // Our AppConfig with env struct tags:
 type AppConfig struct {
-	MaxBytesPerRequest int     `env:"MAX_BYTES_PER_REQUEST"`
-	APIVersion         float64 `env:"API_VERSION"`
-	IsDev              bool    `env:"IS_DEV"`
+	MaxBytesPerRequest int     `env:"MAX_BYTES_PER_REQUEST" default:"2048"` // Defaults to 2048
+	APIVersion         float64 `env:"API_VERSION,required"` // Required to be present and not empty string
+	IsDev              bool    `env:"IS_DEV,optional"` // Optional: defaults to zero value
 	StripeSecret       string  `env:"STRIPE_SECRET"`
 	WelcomeMessage     string  `env:"WELCOME_MESSAGE"`
 }
@@ -52,7 +52,7 @@ So for local dev we can use this `.env` file. But when you deploy your app, you 
 
 If your key value pairs are coming from a source other than a file, or you want to control file IO yourself, you can call `FromReader` instead and pass in a `io.Reader`. There is [a runnable example of that in the godoc](https://pkg.go.dev/github.com/DeanPDX/dotconfig#example-FromReader).
 
-## Error Handling
+## Error Handling and Options
 
 By default, file IO errors in `dotconfig.FromFileName` won't produce an error. This is because when you are running in the cloud with a secret manager, not finding a `.env` file is the happy path. If you want to return errors from `os.Open` you can do so with an option:
 
@@ -100,6 +100,8 @@ if err != nil {
 			// Handle missing struct tag
 		case errors.Is(errors.Unwrap(err), dotconfig.ErrUnsupportedFieldType):
 			// Handle unsupported field type
+		case errors.Is(errors.Unwrap(err), dotconfig.ErrMissingRequiredField):
+			// Handle missing required field
 		}
 	}
 }

@@ -132,7 +132,8 @@ func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
 var (
 	ErrConfigMustBeStruct   = errors.New("config must be struct")
 	ErrMissingStructTag     = errors.New("missing struct tag on field")
-	ErrMissingEnvVar        = errors.New("value not present in env")
+	ErrMissingEnvVar        = errors.New("key not present in ENV")
+	ErrMissingRequiredField = errors.New("field must have non-zero value")
 	ErrUnsupportedFieldType = errors.New("unsupported field type")
 )
 
@@ -154,9 +155,10 @@ func fromEnv[T any](opts options) (T, error) {
 			continue
 		}
 		fieldType := ct.Field(i)
-		envKey := fieldType.Tag.Get("env")
+		// Get the env struct tag
+		envTag := fieldType.Tag.Get("env")
 		// No struct tag
-		if envKey == "" {
+		if envTag == "" {
 			// By default we just assume the consumers of this library have
 			// a mixture of fields with env struct tags and some they want
 			// this library to ignore. But consumers can opt in to no struct
@@ -166,15 +168,30 @@ func fromEnv[T any](opts options) (T, error) {
 			}
 			continue
 		}
+		// Parse env tag into environment variable key and options
+		envKey, opts := parseTag(envTag)
 		envValue, keyExists := os.LookupEnv(envKey)
-		// Missing env key
+		// Missing env var
 		if !keyExists {
-			errs.Add(fmt.Errorf("%w: %v", ErrMissingEnvVar, envKey))
-			continue
+			// Check to see if we have a default value
+			defaultVal := fieldType.Tag.Get("default")
+			if defaultVal != "" {
+				envValue = defaultVal
+			} else if opts.Contains("optional") {
+				// Optional so skip missing error
+				continue
+			} else {
+				errs.Add(fmt.Errorf("%w: %v", ErrMissingEnvVar, envKey))
+				continue
+			}
 		}
 		// Empty value
-		// TODO: we could enforce non-empty values based on struct tags.
 		if strings.TrimSpace(envValue) == "" {
+			// If required option is set, this is an error
+			if opts.Contains("required") {
+				errs.Add(fmt.Errorf("%w: %v", ErrMissingRequiredField, envKey))
+			}
+			// Otherwise zero-values are fine
 			continue
 		}
 		// Based on type, parse and set values. This borrows from encoding/json:
