@@ -103,7 +103,7 @@ func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
 		key := line[0:strings.Index(line, "=")]
 		value := line[len(key)+1:]
 
-		// If there is a inline commend, so a space and then a #, exclude the commend.
+		// If there is a inline comment, so a space and then a #, exclude the comment.
 		if strings.Contains(value, " #") {
 			value = value[0:strings.Index(value, " #")]
 		}
