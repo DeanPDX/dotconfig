@@ -109,6 +109,6 @@ if err != nil {
 ```
 
 ## Contributing
-Contributions are always welcome. Have a new idea or find a bug? Submit a pull request or create an issue!
+Contributions are always welcome. Have a new idea or find a bug? Submit a pull request or create an issue! 
 
-**IMPORTANT**: This package is being used in production and any future updates should maintain backwards compatibility.
+This package is being used in production and any future updates should maintain backwards compatibility. This is why we have options; to allow us to introduce optional new features while maintaining backwards compatibility.

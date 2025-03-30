@@ -18,11 +18,13 @@ type DecodeOption int
 const (
 	ReturnFileIOErrors DecodeOption = iota // Return file IO errors
 	EnforceStructTags                      // Make sure all fields in config struct have `env` struct tags
+	AllowWhitespace                        // Allow leading/trailing whitespace in string values
 )
 
 type options struct {
 	ReturnFileIOErrors bool
 	EnforceStructTags  bool
+	AllowWhitespace    bool
 }
 
 func optsFromVariadic(opts []DecodeOption) options {
@@ -33,6 +35,8 @@ func optsFromVariadic(opts []DecodeOption) options {
 			v.ReturnFileIOErrors = true
 		case EnforceStructTags:
 			v.EnforceStructTags = true
+		case AllowWhitespace:
+			v.AllowWhitespace = true
 		}
 	}
 	return v
@@ -169,7 +173,7 @@ func fromEnv[T any](opts options) (T, error) {
 			continue
 		}
 		// Parse env tag into environment variable key and options
-		envKey, opts := parseTag(envTag)
+		envKey, tagOpts := parseTag(envTag)
 		envValue, keyExists := os.LookupEnv(envKey)
 		// Missing env var
 		if !keyExists {
@@ -177,7 +181,7 @@ func fromEnv[T any](opts options) (T, error) {
 			defaultVal := fieldType.Tag.Get("default")
 			if defaultVal != "" {
 				envValue = defaultVal
-			} else if opts.Contains("optional") {
+			} else if tagOpts.Contains("optional") {
 				// Optional so skip missing error
 				continue
 			} else {
@@ -185,10 +189,14 @@ func fromEnv[T any](opts options) (T, error) {
 				continue
 			}
 		}
+		// If the consumer hasn't explicitely allowed whitespace, we trim it by default
+		if !opts.AllowWhitespace {
+			envValue = strings.TrimSpace(envValue)
+		}
 		// Empty value
-		if strings.TrimSpace(envValue) == "" {
+		if envValue == "" {
 			// If required option is set, this is an error
-			if opts.Contains("required") {
+			if tagOpts.Contains("required") {
 				errs.Add(fmt.Errorf("%w: %v", ErrMissingRequiredField, envKey))
 			}
 			// Otherwise zero-values are fine
