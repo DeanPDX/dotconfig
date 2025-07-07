@@ -223,14 +223,14 @@ func TestAllowWhitespace(t *testing.T) {
 	os.Setenv("WHITESPACE_VALUE", " whitespace ")
 	config, err := dotconfig.FromFileName[testAllowWhitespace]("doesn't exist")
 	if err != nil {
-		t.Errorf("Wasnt't expecting error. Got: %v", err)
+		t.Errorf("Wasn't expecting error. Got: %v", err)
 	}
 	if config.Value != "whitespace" {
 		t.Error("Expected to trim whitespace.")
 	}
 	config, err = dotconfig.FromFileName[testAllowWhitespace]("doesn't exist", dotconfig.AllowWhitespace)
 	if err != nil {
-		t.Errorf("Wasnt't expecting error. Got: %v", err)
+		t.Errorf("Wasn't expecting error. Got: %v", err)
 	}
 	if config.Value != " whitespace " {
 		t.Error("Expected to allow whitespace.")
