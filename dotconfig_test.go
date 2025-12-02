@@ -54,12 +54,12 @@ func TestFromReaderSkipDecodingNewlines(t *testing.T) {
 	type noNewlines struct {
 		StrVal string `env:"NO_NEWLINES"`
 	}
-	reader := strings.NewReader(`NO_NEWLINES='\n\n single line! \n\n'`)
+	reader := strings.NewReader(`NO_NEWLINES=\n single \n line! \n`)
 	config, err := dotconfig.FromReader[noNewlines](reader, dotconfig.SkipNewlineDecoding)
 	if err != nil {
 		t.Fatalf("Didn't expect error. Got %v.", err)
 	}
-	expected := `\n\n single line! \n\n`
+	expected := `\n single \n line! \n`
 	if config.StrVal != expected {
 		t.Fatalf("Expected:\n%v\nGot:\n%v", expected, config.StrVal)
 	}
