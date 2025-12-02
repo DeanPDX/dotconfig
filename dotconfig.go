@@ -16,15 +16,17 @@ import (
 type DecodeOption int
 
 const (
-	ReturnFileIOErrors DecodeOption = iota // Return file IO errors
-	EnforceStructTags                      // Make sure all fields in config struct have `env` struct tags
-	AllowWhitespace                        // Allow leading/trailing whitespace in string values
+	ReturnFileIOErrors  DecodeOption = iota // Return file IO errors
+	EnforceStructTags                       // Make sure all fields in config struct have `env` struct tags
+	AllowWhitespace                         // Allow leading/trailing whitespace in string values
+	SkipNewlineDecoding                     // Don't turn "\n" into newlines
 )
 
 type options struct {
-	ReturnFileIOErrors bool
-	EnforceStructTags  bool
-	AllowWhitespace    bool
+	ReturnFileIOErrors  bool
+	EnforceStructTags   bool
+	AllowWhitespace     bool
+	SkipNewlineDecoding bool
 }
 
 func optsFromVariadic(opts []DecodeOption) options {
@@ -37,6 +39,8 @@ func optsFromVariadic(opts []DecodeOption) options {
 			v.EnforceStructTags = true
 		case AllowWhitespace:
 			v.AllowWhitespace = true
+		case SkipNewlineDecoding:
+			v.SkipNewlineDecoding = true
 		}
 	}
 	return v
@@ -91,6 +95,8 @@ func FromFileName[T any](name string, opts ...DecodeOption) (T, error) {
 // In the future might look in to more advanced escaping, etc.
 // but this suits our needs for the time being.
 func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
+	// Get options struct from variadic input
+	decodedOpts := optsFromVariadic(opts)
 	// First, parse all values in our reader and os.Setenv them.
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
@@ -124,13 +130,15 @@ func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
 			// And trim starting double quote
 			value = strings.TrimPrefix(value, `"`)
 		}
-		// Turn \n into newlines
-		value = strings.ReplaceAll(value, `\n`, "\n")
+		// Optionally turn \n into newlines.
+		if !decodedOpts.SkipNewlineDecoding {
+			value = strings.ReplaceAll(value, `\n`, "\n")
+		}
 		// Finally, set our env variable.
 		os.Setenv(key, value)
 	}
 	// Next, populate config file based on struct tags and return populated config
-	return fromEnv[T](optsFromVariadic(opts))
+	return fromEnv[T](decodedOpts)
 }
 
 var (
