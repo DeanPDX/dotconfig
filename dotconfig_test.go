@@ -50,6 +50,21 @@ NUM_RETRIES=13`)
 	}
 }
 
+func TestFromReaderSkipDecodingNewlines(t *testing.T) {
+	type noNewlines struct {
+		StrVal string `env:"NO_NEWLINES"`
+	}
+	reader := strings.NewReader(`NO_NEWLINES='\n\n single line! \n\n'`)
+	config, err := dotconfig.FromReader[noNewlines](reader, dotconfig.SkipNewlineDecoding)
+	if err != nil {
+		t.Fatalf("Didn't expect error. Got %v.", err)
+	}
+	expected := `\n\n single line! \n\n`
+	if config.StrVal != expected {
+		t.Fatalf("Expected:\n%v\nGot:\n%v", expected, config.StrVal)
+	}
+}
+
 type moreAdvancedConfig struct {
 	MaxBytesPerRequest int     `env:"MAX_BYTES_PER_REQUEST"`
 	APIVersion         float64 `env:"API_VERSION"`
