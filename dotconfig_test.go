@@ -251,3 +251,41 @@ func TestAllowWhitespace(t *testing.T) {
 		t.Error("Expected to allow whitespace.")
 	}
 }
+
+func TestInlineComments(t *testing.T) {
+	const dotenv = `
+# this is line comment
+            # and this also line comment
+FOO=bar     # this maybe part of FOO value (see SkipCommentStrip option)
+`
+
+	type configT struct {
+		Foo string `env:"FOO"`
+	}
+
+	{
+		const expected = "bar"
+		r := strings.NewReader(dotenv)
+		config, err := dotconfig.FromReader[configT](r, dotconfig.EnforceStructTags)
+		if err != nil {
+			t.Fatalf("unexpected error (SkipCommentStrip disabled):%v", err)
+		}
+
+		if config.Foo != expected {
+			t.Errorf("incorrect parsed value (SkipCommentStrip disabled), expected: %s, actual: %s", expected, config.Foo)
+		}
+	}
+
+	{
+		const expected = "bar     # this maybe part of FOO value (see SkipCommentStrip option)"
+		r := strings.NewReader(dotenv)
+		config, err := dotconfig.FromReader[configT](r, dotconfig.EnforceStructTags, dotconfig.SkipCommentStrip)
+		if err != nil {
+			t.Fatalf("unexpected error (SkipCommentStrip enabled) :%v", err)
+		}
+
+		if config.Foo != expected {
+			t.Errorf("incorrect parsed value (SkipCommentStrip enabled), expected: %s, actual: %s", expected, config.Foo)
+		}
+	}
+}
