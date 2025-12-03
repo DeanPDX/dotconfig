@@ -20,6 +20,7 @@ const (
 	EnforceStructTags                       // Make sure all fields in config struct have `env` struct tags
 	AllowWhitespace                         // Allow leading/trailing whitespace in string values
 	SkipNewlineDecoding                     // Don't turn "\n" into newlines
+	SkipCommentStrip                        // Don't exclude the comment from value that ends with #some_inline_comment
 )
 
 type options struct {
@@ -27,6 +28,7 @@ type options struct {
 	EnforceStructTags   bool
 	AllowWhitespace     bool
 	SkipNewlineDecoding bool
+	SkipCommentStrip    bool
 }
 
 func optsFromVariadic(opts []DecodeOption) options {
@@ -41,6 +43,8 @@ func optsFromVariadic(opts []DecodeOption) options {
 			v.AllowWhitespace = true
 		case SkipNewlineDecoding:
 			v.SkipNewlineDecoding = true
+		case SkipCommentStrip:
+			v.SkipCommentStrip = true
 		}
 	}
 	return v
@@ -113,9 +117,12 @@ func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
 		key := line[0:strings.Index(line, "=")]
 		value := line[len(key)+1:]
 
-		// If there is a inline comment, so a space and then a #, exclude the comment.
-		if strings.Contains(value, " #") {
-			value = value[0:strings.Index(value, " #")]
+		if !decodedOpts.SkipCommentStrip {
+			// If there is a inline comment, so a space and then a #, exclude the comment.
+			ci := strings.Index(value, " #")
+			if ci >= 0 {
+				value = value[0:ci]
+			}
 		}
 
 		// Determine if our string is single quoted, double quoted, or just raw value.
