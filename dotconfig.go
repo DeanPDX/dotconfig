@@ -156,7 +156,7 @@ var (
 	ErrUnsupportedFieldType = errors.New("unsupported field type")
 )
 
-func fromEnv[T any](opts options) (T, error) {
+func FromEnv[T any](opts options) (T, error) {
 	var config T
 	errs := joinError{}
 	// Reflect into our config
