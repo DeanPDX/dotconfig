@@ -289,3 +289,32 @@ FOO=bar     # this maybe part of FOO value (see SkipCommentStrip option)
 		}
 	}
 }
+
+func Test_issue20(t *testing.T) {
+	const dotenv = `
+# This currently works because we are checking for " #".
+APP_URL="https://myapp.com/#someAnchor"
+# This currently does NOT work, but with better string escaping it could.
+APP_ACTION="Take a #"   # <-- '#' in quoted string, fixed
+`
+	type configT struct {
+		APP_URL    string `env:"APP_URL"`
+		APP_ACTION string `env:"APP_ACTION"`
+	}
+
+	{
+		r := strings.NewReader(dotenv)
+		config, err := dotconfig.FromReader[configT](r, dotconfig.EnforceStructTags)
+		if err != nil {
+			t.Fatalf("unexpected error (SkipCommentStrip disabled):%v", err)
+		}
+
+		if config.APP_URL != "https://myapp.com/#someAnchor" {
+			t.Errorf("APP_URL not match, got: %s", config.APP_URL)
+		}
+
+		if config.APP_ACTION != "Take a #" {
+			t.Errorf("APP_ACTION not match, got: %s", config.APP_ACTION)
+		}
+	}
+}
