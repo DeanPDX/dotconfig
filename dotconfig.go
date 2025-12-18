@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 type DecodeOption int
@@ -104,8 +105,10 @@ func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
 
 	type pToken int
 	const (
-		KEY pToken = iota
+		UNKNOWN pToken = iota
+		KEY
 		VALUE
+		COMMENT
 	)
 
 	type pState int
@@ -113,7 +116,6 @@ func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
 		NORMAL pState = iota
 		QSTRING
 		DQSTRING
-		COMMENT
 	)
 
 	rr := bufio.NewReader(r)
@@ -163,18 +165,23 @@ func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
 		return nil
 	}
 
-	reset(KEY, NORMAL)
+	reset(UNKNOWN, NORMAL)
 	for ; ; p++ {
 		ch, _, err := rr.ReadRune()
 		if err != nil {
 			if err == io.EOF {
-				if ps == QSTRING || ps == DQSTRING {
+				if pt == KEY {
 					var defaultT T
-					return defaultT, fmt.Errorf("invalid key-value sequence at index %d", p)
-				}
+					return defaultT, fmt.Errorf("key without value at index %d", p)
+				} else if pt == VALUE {
+					if ps == QSTRING || ps == DQSTRING {
+						var defaultT T
+						return defaultT, fmt.Errorf("invalid key-value sequence at index %d", p)
+					}
 
-				if pt == VALUE {
-					_ = flush()
+					if pt == VALUE {
+						_ = flush()
+					}
 				}
 				return fromEnv[T](decodedOpts)
 			}
@@ -184,16 +191,18 @@ func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
 		}
 
 		if ch == '#' {
-			if ps == DQSTRING || ps == QSTRING {
+			if pt == UNKNOWN {
+				reset(COMMENT, NORMAL)
+			} else if pt == COMMENT {
+				// skip
+			} else if ps == DQSTRING || ps == QSTRING {
 				eat(ch)
-			} else if pt == KEY {
-				ps = COMMENT
 			} else if pt == VALUE {
 				if decodedOpts.SkipCommentStrip {
 					eat(ch)
 				} else {
 					_ = flush()
-					reset(KEY, COMMENT)
+					reset(COMMENT, NORMAL)
 				}
 			} else {
 				break
@@ -202,15 +211,15 @@ func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
 		}
 
 		if ch == '\n' {
-			if ps == DQSTRING || ps == QSTRING {
+			if pt == UNKNOWN {
+				// skip
+			} else if ps == DQSTRING || ps == QSTRING {
 				eat(ch)
-			} else if ps == COMMENT {
-				reset(KEY, NORMAL)
-			} else if pt == KEY {
-				// empty line
+			} else if pt == COMMENT {
+				reset(UNKNOWN, NORMAL)
 			} else if pt == VALUE {
 				_ = flush()
-				reset(KEY, NORMAL)
+				reset(UNKNOWN, NORMAL)
 			} else {
 				break
 			}
@@ -219,7 +228,9 @@ func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
 		}
 
 		if ch == '"' {
-			if ps == COMMENT {
+			if pt == UNKNOWN {
+				reset(KEY, DQSTRING)
+			} else if pt == COMMENT {
 				// skip
 			} else if ps == DQSTRING {
 				ps = NORMAL
@@ -234,7 +245,9 @@ func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
 		}
 
 		if ch == '\'' {
-			if ps == COMMENT {
+			if pt == UNKNOWN {
+				reset(KEY, QSTRING)
+			} else if pt == COMMENT {
 				// skip
 			} else if ps == QSTRING {
 				ps = NORMAL
@@ -249,7 +262,7 @@ func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
 		}
 
 		if ch == '=' {
-			if ps == COMMENT {
+			if pt == COMMENT {
 				// skip
 			} else if ps == QSTRING || ps == DQSTRING {
 				eat(ch)
@@ -263,7 +276,15 @@ func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
 			continue
 		}
 
-		if ps != COMMENT {
+		if pt == UNKNOWN {
+			if !unicode.IsSpace(ch) {
+				reset(KEY, NORMAL)
+			} else {
+				continue
+			}
+		}
+
+		if pt != COMMENT {
 			eat(ch)
 		}
 	}
