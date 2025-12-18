@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 type DecodeOption int
@@ -101,51 +102,195 @@ func FromFileName[T any](name string, opts ...DecodeOption) (T, error) {
 func FromReader[T any](r io.Reader, opts ...DecodeOption) (T, error) {
 	// Get options struct from variadic input
 	decodedOpts := optsFromVariadic(opts)
-	// First, parse all values in our reader and os.Setenv them.
-	scanner := bufio.NewScanner(r)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		// Empty line or comments, nothing to do. Otherwise, if it doesn't have "='" we don't have a valid line.
-		if len(line) == 0 || strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
+
+	type pToken int
+	const (
+		UNKNOWN pToken = iota
+		KEY
+		VALUE
+		COMMENT
+	)
+
+	type pState int
+	const (
+		NORMAL pState = iota
+		QSTRING
+		DQSTRING
+	)
+
+	rr := bufio.NewReader(r)
+
+	p := 0
+	var pt pToken
+	var ps pState
+
+	var key, value strings.Builder
+
+	eat := func(ch rune) {
+		if pt == KEY {
+			key.WriteRune(ch)
+		} else if pt == VALUE {
+			value.WriteRune(ch)
+		} else {
+			panic("newer")
+		}
+	}
+
+	reset := func(ppt pToken, pps pState) {
+		pt = ppt
+		ps = pps
+		key.Reset()
+		value.Reset()
+	}
+
+	flush := func() error {
+		if key.Len() > 0 {
+			keyStr := key.String()
+			if !decodedOpts.SkipNewlineDecoding {
+				keyStr = strings.ReplaceAll(keyStr, "\\n", "\n")
+			}
+
+			valueStr := value.String()
+			if len(valueStr) > 0 {
+				if !decodedOpts.SkipNewlineDecoding {
+					valueStr = strings.ReplaceAll(valueStr, "\\n", "\n")
+				}
+			}
+
+			keyStr = strings.TrimSpace(keyStr)
+			if len(keyStr) > 0 {
+				return os.Setenv(keyStr, valueStr)
+			}
+		}
+		return nil
+	}
+
+	reset(UNKNOWN, NORMAL)
+	for ; ; p++ {
+		ch, _, err := rr.ReadRune()
+		if err != nil {
+			if err == io.EOF {
+				if pt == KEY {
+					var defaultT T
+					return defaultT, fmt.Errorf("key without value at index %d", p)
+				} else if pt == VALUE {
+					if ps == QSTRING || ps == DQSTRING {
+						var defaultT T
+						return defaultT, fmt.Errorf("invalid key-value sequence at index %d", p)
+					}
+
+					if pt == VALUE {
+						_ = flush()
+					}
+				}
+				return fromEnv[T](decodedOpts)
+			}
+
+			var defaultT T
+			return defaultT, fmt.Errorf("invalid unicode sequence at index %d: %w", p, err)
+		}
+
+		if ch == '#' {
+			if pt == UNKNOWN {
+				reset(COMMENT, NORMAL)
+			} else if pt == COMMENT {
+				// skip
+			} else if ps == DQSTRING || ps == QSTRING {
+				eat(ch)
+			} else if pt == VALUE {
+				if decodedOpts.SkipCommentStrip {
+					eat(ch)
+				} else {
+					_ = flush()
+					reset(COMMENT, NORMAL)
+				}
+			} else {
+				break
+			}
 			continue
 		}
 
-		// Turn a line into key/value pair. Example lines:
-		// STRIPE_SECRET_KEY='sk_test_asDF!'
-		// STRIPE_SECRET_KEY=sk_test_asDF!
-		// STRIPE_SECRET_KEY="sk_test_asDF!"
-		key := line[0:strings.Index(line, "=")]
-		value := line[len(key)+1:]
+		if ch == '\n' {
+			if pt == UNKNOWN {
+				// skip
+			} else if ps == DQSTRING || ps == QSTRING {
+				eat(ch)
+			} else if pt == COMMENT {
+				reset(UNKNOWN, NORMAL)
+			} else if pt == VALUE {
+				_ = flush()
+				reset(UNKNOWN, NORMAL)
+			} else {
+				break
+			}
 
-		if !decodedOpts.SkipCommentStrip {
-			// If there is a inline comment, so a space and then a #, exclude the comment.
-			ci := strings.Index(value, " #")
-			if ci >= 0 {
-				value = value[0:ci]
+			continue
+		}
+
+		if ch == '"' {
+			if pt == UNKNOWN {
+				reset(KEY, DQSTRING)
+			} else if pt == COMMENT {
+				// skip
+			} else if ps == DQSTRING {
+				ps = NORMAL
+			} else if ps == QSTRING {
+				eat(ch)
+			} else if ps == NORMAL {
+				ps = DQSTRING
+			} else {
+				break
+			}
+			continue
+		}
+
+		if ch == '\'' {
+			if pt == UNKNOWN {
+				reset(KEY, QSTRING)
+			} else if pt == COMMENT {
+				// skip
+			} else if ps == QSTRING {
+				ps = NORMAL
+			} else if ps == DQSTRING {
+				eat(ch)
+			} else if ps == NORMAL {
+				ps = QSTRING
+			} else {
+				break
+			}
+			continue
+		}
+
+		if ch == '=' {
+			if pt == COMMENT {
+				// skip
+			} else if ps == QSTRING || ps == DQSTRING {
+				eat(ch)
+			} else if pt == KEY {
+				pt = VALUE
+			} else if pt == VALUE {
+				eat(ch)
+			} else {
+				break
+			}
+			continue
+		}
+
+		if pt == UNKNOWN {
+			if !unicode.IsSpace(ch) {
+				reset(KEY, NORMAL)
+			} else {
+				continue
 			}
 		}
 
-		// Determine if our string is single quoted, double quoted, or just raw value.
-		if strings.HasPrefix(value, "'") {
-			// Trim closing single quote
-			value = strings.TrimSuffix(value, "'")
-			// And trim starting single quote
-			value = strings.TrimPrefix(value, "'")
-		} else if strings.HasPrefix(value, `"`) {
-			// Trim closing double quote
-			value = strings.TrimSuffix(value, `"`)
-			// And trim starting double quote
-			value = strings.TrimPrefix(value, `"`)
+		if pt != COMMENT {
+			eat(ch)
 		}
-		// Optionally turn \n into newlines.
-		if !decodedOpts.SkipNewlineDecoding {
-			value = strings.ReplaceAll(value, `\n`, "\n")
-		}
-		// Finally, set our env variable.
-		os.Setenv(key, value)
 	}
-	// Next, populate config file based on struct tags and return populated config
-	return fromEnv[T](decodedOpts)
+
+	var defaultT T
+	return defaultT, fmt.Errorf("invalid parser state at index: %d", p)
 }
 
 var (
